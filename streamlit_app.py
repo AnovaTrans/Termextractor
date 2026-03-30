@@ -5,36 +5,18 @@ AI-powered terminology extraction with bilingual lookup and derivative discovery
 
 import streamlit as st
 import os
+from anova_brand_theme import apply_anova_theme, anova_header, anova_footer, anova_sidebar_logo
 
 # Configure page
 st.set_page_config(
-    page_title="TermExtractor-Pro",
+    page_title="Anova Term Extractor Pro",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    [data-testid="stSidebar"] {
-        background-color: #f0f2f6;
-    }
-    .main-header {
-        color: #1f77b4;
-        font-size: 2.5em;
-        font-weight: bold;
-        margin-bottom: 0.5em;
-    }
-    .feature-box {
-        padding: 1.5em;
-        border-radius: 0.5em;
-        background-color: #f9f9f9;
-        border-left: 4px solid #1f77b4;
-        margin-bottom: 1em;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Apply Anova brand theme
+apply_anova_theme()
 
 # Initialize session state
 if 'initialized' not in st.session_state:
@@ -48,14 +30,10 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.image(
-            "https://via.placeholder.com/200x60/1f77b4/ffffff?text=TermExtractor-Pro",
-            use_column_width=True
-        )
-        
-        st.markdown("---")
+        anova_sidebar_logo()
+
         st.subheader("⚙️ Configuration")
-        
+
         # API Key
         api_key = st.text_input(
             "Anthropic API Key",
@@ -63,36 +41,12 @@ def main():
             value=os.getenv("ANTHROPIC_API_KEY", ""),
             help="Your Anthropic API key (https://console.anthropic.com)"
         )
-        
+
         if api_key:
             os.environ["ANTHROPIC_API_KEY"] = api_key
-        
-        st.markdown("---")
-        
-        st.subheader("📚 About")
-        st.info(
-            "**TermExtractor-Pro** extracts key terminology from documents "
-            "with AI, supports bilingual lookup, and discovers morphological variants."
-        )
-        
-        st.markdown("---")
-        
-        # Links
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown("[📖 Docs](https://github.com)")
-        with col2:
-            st.markdown("[🐛 Issues](https://github.com)")
-        with col3:
-            st.markdown("[⭐ GitHub](https://github.com)")
-    
+
     # Main content
-    st.markdown('<p class="main-header">🔍 TermExtractor-Pro</p>', unsafe_allow_html=True)
-    st.markdown(
-        "AI-powered terminology extraction with bilingual lookup and derivative discovery"
-    )
-    
-    st.markdown("---")
+    anova_header("Term Extractor Pro", "AI-powered terminology extraction with bilingual lookup and derivative discovery")
     
     # Tabs for different pages
     tab1, tab2, tab3 = st.tabs(["📝 Extract", "📊 Results", "⚙️ Settings"])
@@ -118,6 +72,8 @@ def main():
         st.subheader("Settings & Configuration")
         from pages.settings import show_settings_page
         show_settings_page()
+
+    anova_footer()
 
 
 if __name__ == "__main__":
