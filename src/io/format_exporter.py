@@ -7,8 +7,13 @@ import json
 import csv
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from io import BytesIO
+from io import BytesIO, StringIO
 from src.models import Term, ExtractionResult
+
+# The XML namespace for xml:lang. ElementTree and lxml both reject the literal
+# "xml:lang" as an attribute name and require this expanded form, which they then
+# serialize back to xml:lang.
+XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
 
 
 class FormatExporter:
@@ -81,24 +86,22 @@ class FormatExporter:
     
     def export_csv(self, result: ExtractionResult) -> bytes:
         """Export to CSV format"""
-        output = BytesIO()
-        
-        # Prepare data
         rows = [term.to_export_row() for term in result.terms]
-        
+
         if not rows:
-            output.write(b"No terms to export")
-            return output.getvalue()
-        
-        # Get headers from first row
+            return "No terms to export".encode('utf-8-sig')
+
         headers = list(rows[0].keys())
-        
-        # Write CSV
-        writer = csv.DictWriter(output, fieldnames=headers, encoding='utf-8-sig')
+
+        # csv writes text, not bytes, and takes no `encoding` argument — write to a
+        # StringIO and encode once. utf-8-sig adds the BOM Excel needs to read
+        # non-ASCII correctly.
+        buffer = StringIO(newline='')
+        writer = csv.DictWriter(buffer, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
-        
-        return output.getvalue()
+
+        return buffer.getvalue().encode('utf-8-sig')
     
     def export_tbx(self, result: ExtractionResult) -> bytes:
         """Export to TBX (TermBase eXchange) format"""
@@ -111,7 +114,7 @@ class FormatExporter:
         # Create TBX structure
         root = etree.Element('tbx')
         root.set('type', 'TBX-CoreStructV02')
-        root.set('xml:lang', result.source_language or 'en')
+        root.set(XML_LANG,result.source_language or 'en')
         
         # Header
         header = etree.SubElement(root, 'tbxHeader')
@@ -143,7 +146,7 @@ class FormatExporter:
             
             # Source language term
             lang_set_src = etree.SubElement(entry, 'langSet')
-            lang_set_src.set('xml:lang', result.source_language or 'en')
+            lang_set_src.set(XML_LANG,result.source_language or 'en')
             
             tig_src = etree.SubElement(lang_set_src, 'tig')
             term_elem = etree.SubElement(tig_src, 'term')
@@ -163,7 +166,7 @@ class FormatExporter:
             # Target language term (if exists)
             if term.translation and result.target_language:
                 lang_set_tgt = etree.SubElement(entry, 'langSet')
-                lang_set_tgt.set('xml:lang', result.target_language)
+                lang_set_tgt.set(XML_LANG,result.target_language)
                 
                 tig_tgt = etree.SubElement(lang_set_tgt, 'tig')
                 term_tgt = etree.SubElement(tig_tgt, 'term')
@@ -198,6 +201,8 @@ class FormatExporter:
     @staticmethod
     def _populate_terms_sheet(ws, terms: List[Term]) -> None:
         """Populate XLSX terms sheet"""
+        from openpyxl.styles import Font   # local: this runs in a worker/export path
+
         # Headers
         headers = [
             'Term', 'Translation', 'From Existing', 'Source',
