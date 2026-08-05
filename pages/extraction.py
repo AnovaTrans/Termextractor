@@ -149,98 +149,112 @@ def show_extraction_page():
     
     st.markdown("---")
     
-    # Extract button
+    # Extract button. It is disabled while a run is in progress (so a second
+    # click cannot restart the job) and until a file is chosen.
+    running = st.session_state.get("extracting", False)
+
     col_extract, col_info = st.columns([2, 3])
-    
     with col_extract:
         extract_button = st.button(
-            "🚀 Extract Terms",
+            "⏳ Extracting…" if running else "🚀 Extract Terms",
             use_container_width=True,
-            type="primary"
+            type="primary",
+            disabled=running or uploaded_file is None,
         )
-    
     with col_info:
         if uploaded_file:
             st.info(
                 f"📄 **{uploaded_file.name}** ({uploaded_file.size / 1024:.1f} KB)\n\n"
                 f"Language: **{source_lang}** → **{target_lang or 'Monolingual'}**"
             )
-    
-    # Perform extraction
-    if extract_button:
+
+    # First click only flips the flag and reruns, so the button re-renders
+    # disabled BEFORE the blocking work starts (Streamlit runs top to bottom).
+    if extract_button and not running:
         if not uploaded_file:
             st.error("❌ Please upload a file first")
             return
-        
         if not os.getenv("ANTHROPIC_API_KEY"):
             st.error("❌ Anthropic API key not configured")
             return
-        
+        st.session_state.extracting = True
+        st.session_state.pop("extraction_error", None)
+        st.rerun()
+
+    # The blocking work runs on the rerun where the button is already disabled.
+    if running:
+        progress_bar = st.progress(0.0, text="Preparing…")
+
+        def on_progress(done, total):
+            fraction = (done / total) if total else 0.0
+            progress_bar.progress(
+                min(fraction, 1.0),
+                text=f"Extracting terms… {done}/{total} chunks ({fraction:.0%})",
+            )
+
+        tmp_path = None
+        bilingual_path = None
         try:
-            with st.spinner("🔄 Extracting terms..."):
-                # Save uploaded file temporarily
-                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp:
-                    tmp.write(uploaded_file.getbuffer())
-                    tmp_path = tmp.name
-                
-                try:
-                    # Initialize extractor
-                    extractor = TermExtractor(api_key=os.getenv("ANTHROPIC_API_KEY"))
-                    
-                    # Prepare bilingual file path
-                    bilingual_path = None
-                    if enable_bilingual and bilingual_file:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(bilingual_file.name).suffix) as tmp_bi:
-                            tmp_bi.write(bilingual_file.getbuffer())
-                            bilingual_path = tmp_bi.name
-                    
-                    # Extract
-                    result = extractor.extract(
-                        file_path=tmp_path,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        domain_path=domain_path if domain_path else None,
-                        relevance_threshold=relevance_threshold,
-                        enable_bilingual_lookup=enable_bilingual and bilingual_file is not None,
-                        bilingual_file_path=bilingual_path,
-                        fuzzy_threshold=fuzzy_threshold,
-                        enable_derivative_discovery=enable_derivatives,
-                        derivative_modes=derivative_modes,
-                        model=selected_model,
-                    )
-                    
-                    # Store in session state
-                    st.session_state.extraction_result = result
-                    st.session_state.api_stats = extractor.get_usage_stats()
-                    st.session_state.export_format = export_format
-                    
-                    # Show success message
-                    st.success(f"✅ Extracted {len(result.terms)} terms!")
-                    
-                    # Show quick stats
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Total Terms", len(result.terms))
-                    with col2:
-                        high_rel = len(result.get_high_relevance_terms(80))
-                        st.metric("High Relevance", high_rel)
-                    with col3:
-                        if result.lookup_statistics:
-                            st.metric("Bilingual Matches", result.lookup_statistics.get('exact_matches_found', 0))
-                    with col4:
-                        if result.derivative_statistics:
-                            st.metric("Derivatives Found", result.derivative_statistics.get('derivatives_found', 0))
-                    
-                    # Show option to go to results
-                    st.info("👉 View detailed results in the **Results** tab")
-                
-                finally:
-                    # Cleanup
-                    if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-                    if bilingual_path and os.path.exists(bilingual_path):
-                        os.unlink(bilingual_path)
-        
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp:
+                tmp.write(uploaded_file.getbuffer())
+                tmp_path = tmp.name
+
+            extractor = TermExtractor(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+            if enable_bilingual and bilingual_file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(bilingual_file.name).suffix) as tmp_bi:
+                    tmp_bi.write(bilingual_file.getbuffer())
+                    bilingual_path = tmp_bi.name
+
+            result = extractor.extract(
+                file_path=tmp_path,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                domain_path=domain_path if domain_path else None,
+                relevance_threshold=relevance_threshold,
+                enable_bilingual_lookup=enable_bilingual and bilingual_file is not None,
+                bilingual_file_path=bilingual_path,
+                fuzzy_threshold=fuzzy_threshold,
+                enable_derivative_discovery=enable_derivatives,
+                derivative_modes=derivative_modes,
+                model=selected_model,
+                progress_cb=on_progress,
+            )
+            progress_bar.progress(1.0, text="Done")
+
+            st.session_state.extraction_result = result
+            st.session_state.api_stats = extractor.get_usage_stats()
+            st.session_state.export_format = export_format
+            st.session_state.last_extract_count = len(result.terms)
         except Exception as e:
-            st.error(f"❌ Error during extraction: {str(e)}")
-            st.write("Please check your API key and try again.")
+            st.session_state.extraction_error = str(e)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            if bilingual_path and os.path.exists(bilingual_path):
+                os.unlink(bilingual_path)
+            st.session_state.extracting = False
+        # Rerun to re-enable the button and render the outcome below.
+        st.rerun()
+
+    # Outcome of the last run (persists across reruns / tab switches).
+    if st.session_state.get("extraction_error"):
+        st.error(f"❌ Error during extraction: {st.session_state.pop('extraction_error')}")
+        st.write("Please check your API key and try again.")
+    elif st.session_state.get("extraction_result") is not None and "last_extract_count" in st.session_state:
+        result = st.session_state.extraction_result
+        st.success(f"✅ Extracted {st.session_state.last_extract_count} terms!")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Terms", len(result.terms))
+        with col2:
+            st.metric("High Relevance", len(result.get_high_relevance_terms(80)))
+        with col3:
+            if result.lookup_statistics:
+                st.metric("Bilingual Matches", result.lookup_statistics.get('exact_matches_found', 0))
+        with col4:
+            if result.derivative_statistics:
+                st.metric("Derivatives Found", result.derivative_statistics.get('derivatives_found', 0))
+
+        st.info("👉 View detailed results in the **Results** tab")

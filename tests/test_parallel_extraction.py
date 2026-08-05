@@ -59,7 +59,7 @@ def _install_fake_anthropic():
     sys.modules["anthropic"] = module
 
 
-def _run(num_segments=400, fail_text=None):
+def _run(num_segments=400, fail_text=None, progress_cb=None):
     _reset()
     _fail_on["text"] = fail_text
     _install_fake_anthropic()
@@ -72,7 +72,7 @@ def _run(num_segments=400, fail_text=None):
         path = f.name
     try:
         return TermExtractor(api_key="k").extract(file_path=path, source_lang="en",
-                                                  relevance_threshold=0)
+                                                  relevance_threshold=0, progress_cb=progress_cb)
     finally:
         os.unlink(path)
 
@@ -87,6 +87,18 @@ def test_every_chunk_is_aggregated():
     result = _run()
     # one unique term per chunk call, all collected
     assert len(result.terms) == _calls
+
+
+def test_progress_callback_counts_up_to_total():
+    calls = []
+    result = _run(progress_cb=lambda done, total: calls.append((done, total)))
+    total = calls[0][1]
+    assert total == _calls                      # total == number of chunks
+    assert calls[0][0] == 0                      # starts at 0
+    assert calls[-1] == (total, total)           # ends at 100%
+    dones = [d for d, _ in calls]
+    assert dones == sorted(dones)                # monotonically non-decreasing
+    assert all(t == total for _, t in calls)     # total stays constant
 
 
 def test_a_single_failing_chunk_does_not_sink_the_run():

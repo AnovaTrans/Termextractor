@@ -61,6 +61,8 @@ class TermExtractor:
         derivative_modes: Optional[List[str]] = None,
         # Model override (falls back to the configured extraction model)
         model: Optional[str] = None,
+        # Progress callback: called as progress_cb(done_chunks, total_chunks)
+        progress_cb=None,
     ) -> ExtractionResult:
         """
         Extract terms from file.
@@ -119,6 +121,7 @@ class TermExtractor:
             self.config.target_language,
             self.config.domain_path,
             model=model,
+            progress_cb=progress_cb,
         )
         
         # Enrich with bilingual lookup
@@ -184,6 +187,7 @@ class TermExtractor:
         target_lang: Optional[str],
         domain_path: Optional[str],
         model: Optional[str] = None,
+        progress_cb=None,
     ) -> ExtractionResult:
         """Extract terms from text using API"""
         if not text:
@@ -214,6 +218,11 @@ class TermExtractor:
                 domain_path=domain_path, context=context, model=model,
             )
 
+        total = len(chunks)
+        completed = 0
+        if progress_cb:
+            progress_cb(0, total)          # show 0% before any call returns
+
         responses: List[Optional[Dict[str, Any]]] = [None] * len(chunks)
         if max_workers == 1:
             for pair in enumerate(chunks):
@@ -223,10 +232,15 @@ class TermExtractor:
                 except Exception as e:   # one bad chunk must not sink the run
                     parse_failures += 1
                     print(f"⚠️  Chunk {pair[0] + 1} failed: {e}")
+                completed += 1
+                if progress_cb:
+                    progress_cb(completed, total)
         else:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = {pool.submit(_fetch, pair): pair[0] for pair in enumerate(chunks)}
+                # as_completed yields in THIS (main) thread, so updating a Streamlit
+                # progress bar from progress_cb here is safe.
                 for future in as_completed(futures):
                     idx = futures[future]
                     try:
@@ -235,6 +249,9 @@ class TermExtractor:
                     except Exception as e:
                         parse_failures += 1
                         print(f"⚠️  Chunk {idx + 1} failed: {e}")
+                    completed += 1
+                    if progress_cb:
+                        progress_cb(completed, total)
 
         # Parse the responses in chunk order. Parsing is local work, so keeping it
         # sequential costs nothing and makes the output deterministic. The model is
