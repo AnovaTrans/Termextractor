@@ -16,6 +16,25 @@ from src.models import Term, ExtractionResult
 XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
 
 
+def _excel_safe(value: Any):
+    """Coerce a value to something openpyxl can put in a cell.
+
+    openpyxl accepts only scalars (str/int/float/bool/None/datetime). A list or
+    dict raises "Cannot convert ... to Excel" — which is exactly what a stats
+    value like modes_used=[] does. Lists become a joined string, dicts become
+    JSON, everything else passes through.
+    """
+    if isinstance(value, (list, tuple, set)):
+        return '; '.join(str(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return ''
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 class FormatExporter:
     """Export extraction results in various formats"""
     
@@ -240,7 +259,7 @@ class FormatExporter:
             ]
             
             for col, value in enumerate(data, 1):
-                ws.cell(row_idx, col).value = value
+                ws.cell(row_idx, col).value = _excel_safe(value)
     
     @staticmethod
     def _populate_derivatives_sheet(ws, derivatives_data: Dict) -> None:
@@ -250,9 +269,9 @@ class FormatExporter:
         ws['C1'] = 'Variants'
         
         for row_idx, (base_term, variants) in enumerate(derivatives_data.items(), 2):
-            ws[f'A{row_idx}'] = base_term
+            ws[f'A{row_idx}'] = _excel_safe(base_term)
             ws[f'B{row_idx}'] = len(variants)
-            ws[f'C{row_idx}'] = '; '.join(variants)
+            ws[f'C{row_idx}'] = '; '.join(str(v) for v in variants)
     
     @staticmethod
     def _populate_statistics_sheet(ws, result: ExtractionResult) -> None:
@@ -264,8 +283,8 @@ class FormatExporter:
         
         # Statistics
         for key, value in result.statistics.items():
-            ws[f'A{row}'] = key
-            ws[f'B{row}'] = value
+            ws[f'A{row}'] = _excel_safe(key)
+            ws[f'B{row}'] = _excel_safe(value)
             row += 1
         
         # Lookup statistics
@@ -274,8 +293,8 @@ class FormatExporter:
             row += 1
             
             for key, value in result.lookup_statistics.items():
-                ws[f'A{row}'] = key
-                ws[f'B{row}'] = value
+                ws[f'A{row}'] = _excel_safe(key)
+                ws[f'B{row}'] = _excel_safe(value)
                 row += 1
         
         # Derivative statistics
@@ -284,8 +303,8 @@ class FormatExporter:
             row += 1
             
             for key, value in result.derivative_statistics.items():
-                ws[f'A{row}'] = key
-                ws[f'B{row}'] = value
+                ws[f'A{row}'] = _excel_safe(key)
+                ws[f'B{row}'] = _excel_safe(value)
                 row += 1
     
     @staticmethod

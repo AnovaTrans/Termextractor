@@ -13,7 +13,8 @@ import xml.etree.ElementTree as ET
 import pytest
 from openpyxl import load_workbook
 
-from src.models import Term, ExtractionResult
+from src.models import (Term, ExtractionResult, DerivativeStatistics,
+                        BilinguialLookupStatistics)
 from src.io import FormatExporter
 
 
@@ -31,6 +32,10 @@ def result():
     res = ExtractionResult(terms=terms, domain_hierarchy=["Real Estate"],
                            source_language="en", target_language="bg")
     res.statistics = res._calculate_statistics(terms)
+    # As set by the real extraction flow: these carry list-valued fields
+    # (e.g. modes_used=[]) that openpyxl cannot put in a cell directly.
+    res.lookup_statistics = BilinguialLookupStatistics().__dict__
+    res.derivative_statistics = DerivativeStatistics().__dict__
     return res
 
 
@@ -50,6 +55,17 @@ def test_csv_has_a_bom_headers_and_unicode(result):
     text = data.decode("utf-8-sig")
     assert text.splitlines()[0].startswith("term,")
     assert "Ривър Уест" in text                       # unicode survived
+
+
+def test_xlsx_handles_list_valued_statistics(result):
+    # modes_used=[] and other list fields must not raise "Cannot convert [] to Excel".
+    data = FormatExporter().export(result, "xlsx")
+    wb = load_workbook(io.BytesIO(data))
+    assert "Statistics" in wb.sheetnames
+    # every populated cell is a scalar openpyxl accepted
+    for row in wb["Statistics"].iter_rows():
+        for cell in row:
+            assert not isinstance(cell.value, (list, tuple, dict, set))
 
 
 def test_csv_of_no_terms_does_not_crash():
