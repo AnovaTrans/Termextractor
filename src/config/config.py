@@ -123,7 +123,8 @@ class ConfigManager:
         model_config = self.get_model_config()
         
         model_key = f"{purpose}_model"
-        return model_config.get(model_key, model_config.get('default_model', 'claude-3-5-sonnet-20241022'))
+        # Last-ditch fallback only when config.yaml has no model_selection at all.
+        return model_config.get(model_key, model_config.get('default_model', 'claude-haiku-4-5'))
     
     def reload(self) -> None:
         """Reload configuration from file"""

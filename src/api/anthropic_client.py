@@ -38,17 +38,16 @@ class AnthropicClient:
             'estimated_cost': 0.0,
         }
         
-        # Pricing (as of latest)
+        # Pricing, USD per token (approximate; used only for the cost estimate).
         self.pricing = {
-            'claude-3-5-haiku-20241022': {
-                'input': 0.80 / 1_000_000,  # $0.80 per 1M input tokens
-                'output': 4.00 / 1_000_000,  # $4.00 per 1M output tokens
-            },
-            'claude-3-5-sonnet-20241022': {
-                'input': 3.00 / 1_000_000,  # $3.00 per 1M input tokens
-                'output': 15.00 / 1_000_000,  # $15.00 per 1M output tokens
-            },
+            'claude-haiku-4-5':            {'input': 1.00 / 1_000_000, 'output': 5.00 / 1_000_000},
+            'claude-sonnet-5':             {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-opus-4-8':             {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-3-5-haiku-20241022':   {'input': 0.80 / 1_000_000, 'output': 4.00 / 1_000_000},
+            'claude-3-5-sonnet-20241022':  {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
         }
+        # Fallback when an unknown model id is priced.
+        self._fallback_price = {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000}
     
     def _get_model_for_purpose(self, purpose: str = 'extraction') -> str:
         """
@@ -69,12 +68,16 @@ class AnthropicClient:
     
     def _calculate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
         """Calculate estimated cost for API call"""
-        pricing = self.pricing.get(model, self.pricing['claude-3-5-sonnet-20241022'])
-        
+        pricing = self.pricing.get(model, self._fallback_price)
+
         input_cost = input_tokens * pricing['input']
         output_cost = output_tokens * pricing['output']
-        
+
         return input_cost + output_cost
+
+    def _max_tokens(self) -> int:
+        """Output-token ceiling per request, from config (default 8192)."""
+        return int(self.config.get('api.max_tokens_per_request', 8192))
     
     def extract_terms(
         self,
@@ -83,30 +86,35 @@ class AnthropicClient:
         target_lang: Optional[str] = None,
         domain_path: Optional[str] = None,
         context: Optional[str] = None,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Extract terms from text using Haiku (most cost-efficient).
-        
+        Extract terms from text.
+
         Args:
             text: Text to extract terms from
             source_lang: Source language code
             target_lang: Target language code (optional)
             domain_path: Domain hint
             context: Additional context
-            
+            model: Model id to use (falls back to the configured extraction model)
+            max_tokens: Output-token ceiling (falls back to the configured value)
+
         Returns:
             API response with extracted terms
         """
-        model = self._get_model_for_purpose('extraction')
-        
+        model = model or self._get_model_for_purpose('extraction')
+        max_tokens = max_tokens or self._max_tokens()
+
         system_prompt = self._get_extraction_system_prompt()
         user_prompt = self._get_extraction_user_prompt(
             text, source_lang, target_lang, domain_path, context
         )
-        
+
         response = self.client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=max_tokens,
             system=system_prompt,
             messages=[
                 {"role": "user", "content": user_prompt}

@@ -249,6 +249,75 @@ def safe_json_loads(json_str: str, default_dict: Optional[Dict] = None) -> Dict:
         return default_dict
 
 
+def _first_json_span(text: str) -> Optional[str]:
+    """Return the first balanced {...} or [...] block in text, or None.
+
+    Scans with a string-aware depth counter so braces inside JSON string values
+    (and escaped quotes) do not throw the balance off.
+    """
+    for i, ch in enumerate(text):
+        if ch not in "{[":
+            continue
+        close = "}" if ch == "{" else "]"
+        depth = 0
+        in_str = False
+        escaped = False
+        for j in range(i, len(text)):
+            c = text[j]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif c == "\\":
+                    escaped = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == ch:
+                depth += 1
+            elif c == close:
+                depth -= 1
+                if depth == 0:
+                    return text[i:j + 1]
+        break  # an opener with no matching close: nothing usable
+    return None
+
+
+def parse_model_json(text: str, default: Any = None) -> Any:
+    """Parse JSON out of a language-model reply.
+
+    Models are asked for bare JSON but routinely wrap it in a ```json ... ```
+    fence or prepend a sentence ("Here are the terms: ..."). Raw json.loads()
+    then raises and — where the caller swallows that — the whole extraction
+    silently yields nothing. This strips a fence if present, and otherwise pulls
+    the first balanced JSON block out of the surrounding prose.
+
+    Returns `default` only when no JSON can be recovered at all.
+    """
+    if not text or not text.strip():
+        return default
+
+    candidate = text.strip()
+
+    fence = re.search(r"```(?:json)?\s*(.*?)```", candidate, re.DOTALL | re.IGNORECASE)
+    if fence:
+        candidate = fence.group(1).strip()
+
+    try:
+        return json.loads(candidate)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    span = _first_json_span(candidate)
+    if span is not None:
+        try:
+            return json.loads(span)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return default
+
+
 def hash_string(s: str) -> str:
     """
     Create SHA256 hash of string.
