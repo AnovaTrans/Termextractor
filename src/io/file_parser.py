@@ -201,16 +201,59 @@ class FileParser:
     
     @staticmethod
     def _parse_xml(file_path: str) -> Dict[str, Any]:
-        """Parse XML/XLIFF file"""
+        """Parse XML/XLIFF file.
+
+        For XLIFF-family files (xliff, sdlxliff, mqxliff) only the translation
+        segments are extracted: the <source> text of each <trans-unit>, joined by
+        blank lines so the chunker can split on segment boundaries.
+
+        The previous version walked the whole tree and concatenated *every* text
+        node — which in a memoQ mqxliff means the serialized LQA model, tag
+        definitions, commit history and both languages. On a real file that turned
+        ~20k words of content into ~470k chars of mostly metadata, exploded the
+        chunk count, and made a run take many minutes before the host timed it out.
+        """
         try:
             import xml.etree.ElementTree as ET
-            
+
             tree = ET.parse(file_path)
             root = tree.getroot()
-            
-            # Extract all text content
+
+            def local(tag) -> str:
+                return tag.split('}')[-1].lower() if isinstance(tag, str) else ''
+
+            def seg(trans_unit, name: str) -> str:
+                for child in trans_unit:
+                    if local(child.tag) == name:
+                        # itertext() flattens inline formatting tags to their text.
+                        return ''.join(child.itertext()).strip()
+                return ''
+
+            trans_units = [e for e in root.iter() if local(e.tag) == 'trans-unit']
+
+            if trans_units:
+                sources, has_target = [], False
+                for tu in trans_units:
+                    source = seg(tu, 'source')
+                    if seg(tu, 'target'):
+                        has_target = True
+                    if source:
+                        sources.append(source)
+
+                text = '\n\n'.join(sources)
+                return {
+                    'text': text,
+                    'metadata': {
+                        'format': Path(file_path).suffix[1:],
+                        'is_bilingual': has_target,
+                        'segment_count': len(sources),
+                        'size_bytes': len(text.encode()),
+                    }
+                }
+
+            # Not XLIFF: fall back to extracting every text node.
             text_parts = []
-            
+
             def extract_text(elem):
                 if elem.text:
                     text_parts.append(elem.text)
@@ -218,15 +261,15 @@ class FileParser:
                     extract_text(child)
                     if child.tail:
                         text_parts.append(child.tail)
-            
+
             extract_text(root)
-            text = '\n'.join(text_parts)
-            
+            text = '\n\n'.join(part for part in text_parts if part.strip())
+
             return {
                 'text': text,
                 'metadata': {
                     'format': Path(file_path).suffix[1:],
-                    'is_bilingual': '<trans-unit' in open(file_path).read()[:5000],
+                    'is_bilingual': False,
                     'size_bytes': len(text.encode()),
                 }
             }
