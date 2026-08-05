@@ -15,16 +15,18 @@ extraction:
   chunk_overlap: 100
 
 model_selection:
-  # Cost-optimized model selection
-  extraction_model: "claude-3-5-haiku-20241022"  # Fast, cheap for basic extraction
-  domain_classification_model: "claude-3-5-haiku-20241022"  # Fast domain detection
-  fuzzy_refinement_model: "claude-3-5-sonnet-20241022"  # Better for complex analysis
-  default_model: "claude-3-5-sonnet-20241022"  # Fallback
+  # Cost-optimized defaults. The Extract page lets the user override the
+  # extraction model per run; these are the fallbacks and the secondary-call
+  # models. IDs are current Anthropic aliases (always latest snapshot).
+  extraction_model: "claude-haiku-4-5"          # Fast, cheap for basic extraction
+  domain_classification_model: "claude-haiku-4-5"  # Fast domain detection
+  fuzzy_refinement_model: "claude-sonnet-5"     # Better for complex analysis
+  default_model: "claude-haiku-4-5"             # Fallback
 
 api:
   timeout_seconds: 60
   rate_limit_per_minute: 50
-  max_tokens_per_request: 4096
+  max_tokens_per_request: 8192   # raised from 4096 to prevent JSON truncation
   retry_attempts: 3
   retry_delay_seconds: 2
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 
 from src.extraction import TermExtractor
-from src.utils.constants import SUPPORTED_LANGUAGES
+from src.utils.constants import SUPPORTED_LANGUAGES, AVAILABLE_MODELS, DEFAULT_MODEL
 
 
 def show_extraction_page():
@@ -46,9 +46,21 @@ def show_extraction_page():
         
         if target_lang == "None":
             target_lang = None
-    
+
+    # AI model selection
+    model_ids = list(AVAILABLE_MODELS.keys())
+    default_index = model_ids.index(DEFAULT_MODEL) if DEFAULT_MODEL in model_ids else 0
+    selected_model = st.selectbox(
+        "🤖 AI Model",
+        options=model_ids,
+        format_func=lambda mid: AVAILABLE_MODELS[mid],
+        index=default_index,
+        help="Which Claude model to use for extraction. Faster models cost less; "
+             "more capable models may find subtler terms.",
+    )
+
     st.markdown("---")
-    
+
     # Advanced settings
     with st.expander("🔧 Advanced Options", expanded=False):
         
@@ -194,6 +206,7 @@ def show_extraction_page():
                         fuzzy_threshold=fuzzy_threshold,
                         enable_derivative_discovery=enable_derivatives,
                         derivative_modes=derivative_modes,
+                        model=selected_model,
                     )
                     
                     # Store in session state

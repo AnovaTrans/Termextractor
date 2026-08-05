@@ -3,7 +3,6 @@ Main TermExtractor orchestrator for TermExtractor-Pro
 Orchestrates all components: API, extraction, lookup, derivatives, export
 """
 
-import json
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 import tempfile
@@ -17,7 +16,7 @@ from src.extraction.bilingual_file_handler import BilingualFileHandler
 from src.extraction.translation_lookup import TranslationLookup, TranslationLookupBuilder
 from src.extraction.derivative_discovery import DerivativeDiscovery, DerivativeConfig
 from src.io import FileParser, FormatExporter
-from src.utils import chunk_text, normalize_language_code, clean_text
+from src.utils import chunk_text, normalize_language_code, clean_text, parse_model_json
 
 
 class TermExtractor:
@@ -60,6 +59,8 @@ class TermExtractor:
         # Derivative discovery options
         enable_derivative_discovery: bool = False,
         derivative_modes: Optional[List[str]] = None,
+        # Model override (falls back to the configured extraction model)
+        model: Optional[str] = None,
     ) -> ExtractionResult:
         """
         Extract terms from file.
@@ -117,6 +118,7 @@ class TermExtractor:
             self.config.source_language,
             self.config.target_language,
             self.config.domain_path,
+            model=model,
         )
         
         # Enrich with bilingual lookup
@@ -181,6 +183,7 @@ class TermExtractor:
         source_lang: str,
         target_lang: Optional[str],
         domain_path: Optional[str],
+        model: Optional[str] = None,
     ) -> ExtractionResult:
         """Extract terms from text using API"""
         if not text:
@@ -191,7 +194,8 @@ class TermExtractor:
         
         all_terms = []
         domain_hierarchy = []
-        
+        parse_failures = 0
+
         for chunk in chunks:
             # Call API for extraction
             response = self.api_manager.extract_terms(
@@ -200,13 +204,23 @@ class TermExtractor:
                 target_lang=target_lang,
                 domain_path=domain_path,
                 context=f"Chunk {chunks.index(chunk) + 1} of {len(chunks)}" if len(chunks) > 1 else None,
+                model=model,
             )
-            
-            # Parse response
+
+            # Parse response. The model is asked for bare JSON but often wraps it
+            # in a ```json fence or a sentence of preamble; parse_model_json digs
+            # the JSON out of that. Raw json.loads() here silently dropped every
+            # such chunk, so extraction returned zero terms with no error.
+            content = response.get('content', '') or ''
+            data = parse_model_json(content, default=None)
+
+            if not isinstance(data, dict):
+                parse_failures += 1
+                print(f"⚠️  Could not parse a JSON object from the model reply "
+                      f"(first 120 chars): {content[:120]!r}")
+                continue
+
             try:
-                content = response.get('content', '{}')
-                data = json.loads(content)
-                
                 # Convert to Term objects
                 for term_data in data.get('terms', []):
                     term = Term(
@@ -230,14 +244,17 @@ class TermExtractor:
                 # Get domain hierarchy
                 if not domain_hierarchy:
                     domain_hierarchy = data.get('domain_hierarchy', ['General'])
-            
-            except json.JSONDecodeError as e:
-                print(f"⚠️  Error parsing API response: {e}")
+
+            except (ValueError, TypeError, KeyError) as e:
+                # A single malformed term field (e.g. a non-numeric score) must
+                # not sink the whole chunk.
+                parse_failures += 1
+                print(f"⚠️  Skipped a malformed term entry: {e}")
                 continue
-        
+
         # Deduplicate terms
         unique_terms = self._deduplicate_terms(all_terms)
-        
+
         result = ExtractionResult(
             terms=unique_terms,
             domain_hierarchy=domain_hierarchy,
@@ -245,7 +262,16 @@ class TermExtractor:
             target_language=target_lang,
             language_pair=f"{source_lang}-{target_lang or source_lang}",
         )
-        
+
+        # Surface a total parse failure instead of reporting "0 terms" as success.
+        if not unique_terms and parse_failures and parse_failures >= len(chunks):
+            result.metadata = {
+                **(result.metadata or {}),
+                'warning': ("The model replied but its output could not be read as "
+                            "terms. Try again, or use a smaller document."),
+                'parse_failures': parse_failures,
+            }
+
         result.statistics = result._calculate_statistics(unique_terms)
         
         return result

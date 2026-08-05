@@ -2,15 +2,25 @@
 Constants for TermExtractor-Pro
 """
 
-# Claude Models (ordered by cost-efficiency for our use case)
-CLAUDE_MODELS = {
-    "extraction": "claude-3-5-haiku-20241022",  # Fast, cheap for simple text extraction
-    "complex_analysis": "claude-3-5-sonnet-20241022",  # Better for fuzzy reference refinement
-    "domain_classification": "claude-3-5-haiku-20241022",  # Fast domain detection
+# Models offered in the UI dropdown. Order = display order (recommended first).
+# IDs are the current Anthropic aliases; they always resolve to the latest
+# snapshot, so this list does not need a date bump every release.
+AVAILABLE_MODELS = {
+    "claude-haiku-4-5": "Claude Haiku 4.5 — fast & economical (recommended)",
+    "claude-sonnet-5": "Claude Sonnet 5 — balanced quality",
+    "claude-opus-4-8": "Claude Opus 4.8 — most capable",
+    "claude-3-5-haiku-20241022": "Claude 3.5 Haiku — legacy, cheapest",
 }
 
-# Default model (fallback)
-DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+# Claude Models by purpose (ordered by cost-efficiency for our use case)
+CLAUDE_MODELS = {
+    "extraction": "claude-haiku-4-5",          # Fast, cheap for simple text extraction
+    "complex_analysis": "claude-sonnet-5",     # Better for fuzzy reference refinement
+    "domain_classification": "claude-haiku-4-5",  # Fast domain detection
+}
+
+# Default model (fallback / dropdown default)
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Text processing
 TEXT_CHUNK_SIZE = 2000  # Characters per chunk for large files
@@ -98,7 +108,10 @@ EXPORT_FORMATS = ['xlsx', 'csv', 'tbx', 'json']
 
 # API rate limits
 API_RATE_LIMIT_PER_MINUTE = 50
-API_MAX_TOKENS_PER_REQUEST = 4096
+# Raised from 4096: at 4096 a term-dense chunk could exhaust the output budget,
+# truncate the JSON mid-object, and — because the parser then failed — yield zero
+# terms. 8192 clears any single ~2000-char chunk with headroom.
+API_MAX_TOKENS_PER_REQUEST = 8192
 API_TIMEOUT_SECONDS = 60
 
 # Batch processing

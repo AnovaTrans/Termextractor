@@ -5,6 +5,7 @@ from .helpers import *
 
 __all__ = [
     # Constants
+    'AVAILABLE_MODELS',
     'CLAUDE_MODELS',
     'DEFAULT_MODEL',
     'TEXT_CHUNK_SIZE',
@@ -25,6 +26,7 @@ __all__ = [
     'is_bilingual_format',
     'safe_json_dumps',
     'safe_json_loads',
+    'parse_model_json',
     'hash_string',
     'truncate_string',
     'format_number',

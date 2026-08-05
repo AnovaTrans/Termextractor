@@ -84,10 +84,12 @@ class APIManager:
         domain_path: Optional[str] = None,
         context: Optional[str] = None,
         use_cache: bool = True,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Extract terms with caching and rate limiting.
-        
+
         Args:
             text: Text to extract from
             source_lang: Source language
@@ -95,24 +97,29 @@ class APIManager:
             domain_path: Domain hint (optional)
             context: Additional context (optional)
             use_cache: Use cache if available
-            
+            model: Model id override (optional)
+            max_tokens: Output-token ceiling override (optional)
+
         Returns:
             Extraction result
         """
-        # Check cache first
-        cache_key = self._get_cache_key('extract', text[:100], source_lang, target_lang, domain_path)
-        
+        # Cache key includes the model: the same text on a different model is a
+        # different result and must not be served from a stale entry.
+        cache_key = self._get_cache_key('extract', text[:100], source_lang, target_lang,
+                                        domain_path, model)
+
         if use_cache and cache_key in self.cache:
             self.stats['cached_hits'] += 1
             return self.cache[cache_key]
-        
+
         # Rate limiting
         self._check_rate_limit()
-        
+
         # Call API
         self.stats['total_requests'] += 1
         result = self.client.extract_terms(
-            text, source_lang, target_lang, domain_path, context
+            text, source_lang, target_lang, domain_path, context,
+            model=model, max_tokens=max_tokens,
         )
         
         # Cache result
