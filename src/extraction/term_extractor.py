@@ -196,21 +196,53 @@ class TermExtractor:
         domain_hierarchy = []
         parse_failures = 0
 
-        for chunk in chunks:
-            # Call API for extraction
-            response = self.api_manager.extract_terms(
-                text=chunk,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                domain_path=domain_path,
-                context=f"Chunk {chunks.index(chunk) + 1} of {len(chunks)}" if len(chunks) > 1 else None,
-                model=model,
+        # Fetch all chunks. A large file (thousands of segments) becomes dozens of
+        # chunks; running them sequentially made a real memoQ file take many minutes
+        # and the host timed the run out. A bounded thread pool overlaps the network
+        # calls — each releases the API-manager lock before the request — so the run
+        # finishes in a fraction of the time. Pool size comes from config
+        # (performance.max_parallel_requests); the per-minute rate limit still caps
+        # the real throughput.
+        max_workers = int(self.api_manager.config.get('performance.max_parallel_requests', 3)) or 1
+        max_workers = max(1, min(max_workers, len(chunks)))
+
+        def _fetch(index_chunk):
+            index, chunk = index_chunk
+            context = f"Chunk {index + 1} of {len(chunks)}" if len(chunks) > 1 else None
+            return index, self.api_manager.extract_terms(
+                text=chunk, source_lang=source_lang, target_lang=target_lang,
+                domain_path=domain_path, context=context, model=model,
             )
 
-            # Parse response. The model is asked for bare JSON but often wraps it
-            # in a ```json fence or a sentence of preamble; parse_model_json digs
-            # the JSON out of that. Raw json.loads() here silently dropped every
-            # such chunk, so extraction returned zero terms with no error.
+        responses: List[Optional[Dict[str, Any]]] = [None] * len(chunks)
+        if max_workers == 1:
+            for pair in enumerate(chunks):
+                try:
+                    idx, resp = _fetch(pair)
+                    responses[idx] = resp
+                except Exception as e:   # one bad chunk must not sink the run
+                    parse_failures += 1
+                    print(f"⚠️  Chunk {pair[0] + 1} failed: {e}")
+        else:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {pool.submit(_fetch, pair): pair[0] for pair in enumerate(chunks)}
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    try:
+                        _, resp = future.result()
+                        responses[idx] = resp
+                    except Exception as e:
+                        parse_failures += 1
+                        print(f"⚠️  Chunk {idx + 1} failed: {e}")
+
+        # Parse the responses in chunk order. Parsing is local work, so keeping it
+        # sequential costs nothing and makes the output deterministic. The model is
+        # asked for bare JSON but often wraps it in a ```json fence or a sentence of
+        # preamble; parse_model_json digs the JSON out of that.
+        for response in responses:
+            if not response:
+                continue
             content = response.get('content', '') or ''
             data = parse_model_json(content, default=None)
 

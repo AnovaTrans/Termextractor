@@ -4,6 +4,7 @@ Cost-optimized model selection strategy
 """
 
 import os
+import threading
 from typing import Optional, Dict, Any, List
 import anthropic
 from src.config import get_config
@@ -29,7 +30,11 @@ class AnthropicClient:
         
         self.client = anthropic.Anthropic(api_key=self.api_key)
         self.config = get_config()
-        
+
+        # Guards usage_stats: extraction runs several requests concurrently and
+        # dict increments are not atomic.
+        self._stats_lock = threading.Lock()
+
         # Usage tracking
         self.usage_stats = {
             'total_requests': 0,
@@ -121,17 +126,18 @@ class AnthropicClient:
             ]
         )
         
-        # Track usage
-        self.usage_stats['total_requests'] += 1
-        self.usage_stats['total_input_tokens'] += response.usage.input_tokens
-        self.usage_stats['total_output_tokens'] += response.usage.output_tokens
         cost = self._calculate_cost(
             model,
             response.usage.input_tokens,
             response.usage.output_tokens
         )
-        self.usage_stats['estimated_cost'] += cost
-        
+        # Track usage (called from worker threads)
+        with self._stats_lock:
+            self.usage_stats['total_requests'] += 1
+            self.usage_stats['total_input_tokens'] += response.usage.input_tokens
+            self.usage_stats['total_output_tokens'] += response.usage.output_tokens
+            self.usage_stats['estimated_cost'] += cost
+
         return {
             'content': response.content[0].text if response.content else "",
             'model': model,
