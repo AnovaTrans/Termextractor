@@ -10,6 +10,21 @@ import anthropic
 from src.config import get_config
 
 
+def _response_text(response) -> str:
+    """Concatenate the text of every text block in a Messages response.
+
+    Robust to responses whose first block is not text — e.g. when extended
+    thinking is enabled the first block is a ThinkingBlock with no `.text`,
+    so the old `response.content[0].text` would raise. This skips non-text
+    blocks (thinking, tool_use) and joins the rest.
+    """
+    parts = []
+    for block in (getattr(response, "content", None) or []):
+        if getattr(block, "type", None) == "text":
+            parts.append(getattr(block, "text", ""))
+    return "".join(parts)
+
+
 class AnthropicClient:
     """Anthropic API client with cost optimization"""
     
@@ -139,7 +154,7 @@ class AnthropicClient:
             self.usage_stats['estimated_cost'] += cost
 
         return {
-            'content': response.content[0].text if response.content else "",
+            'content': _response_text(response),
             'model': model,
             'usage': {
                 'input_tokens': response.usage.input_tokens,
@@ -183,7 +198,7 @@ Return ONLY valid JSON:
         self.usage_stats['total_output_tokens'] += response.usage.output_tokens
         
         return {
-            'content': response.content[0].text if response.content else "",
+            'content': _response_text(response),
             'model': model,
         }
     
@@ -249,7 +264,7 @@ Return ONLY valid JSON:
         self.usage_stats['estimated_cost'] += cost
         
         return {
-            'content': response.content[0].text if response.content else "",
+            'content': _response_text(response),
             'model': model,
             'cost': cost,
         }
