@@ -5,6 +5,7 @@ Orchestrates all components: API, extraction, lookup, derivatives, export
 
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+import re
 import tempfile
 
 from src.api import APIManager
@@ -124,14 +125,22 @@ class TermExtractor:
             progress_cb=progress_cb,
         )
         
+        # Drop template-variable / code-key noise before spending lookups on it.
+        result = self._drop_noise_terms(result)
+
         # Enrich with bilingual lookup
         if self.config.enable_bilingual_lookup and self.translation_lookup:
             result = self._enrich_with_bilingual_lookup(result)
-        
+
         # Enrich with derivative discovery
         if self.config.enable_derivative_discovery and self.derivative_discovery:
             result = self._enrich_with_derivatives(result, text)
-        
+
+        # Collapse same-source-term duplicates to one translation each (run after
+        # lookup so file matches outrank AI guesses). Refresh statistics after.
+        result = self._consolidate_by_source_term(result)
+        result.statistics = result._calculate_statistics(result.terms)
+
         # Apply relevance threshold
         if self.config.relevance_threshold > 0:
             result = result.filter_by_relevance(self.config.relevance_threshold)
@@ -407,10 +416,10 @@ class TermExtractor:
     def _deduplicate_terms(terms: List[Term]) -> List[Term]:
         """Deduplicate terms by normalizing"""
         seen = {}
-        
+
         for term in terms:
             key = (term.term.lower(), (term.translation or '').lower())
-            
+
             if key in seen:
                 # Merge with existing
                 existing = seen[key]
@@ -421,8 +430,77 @@ class TermExtractor:
                 existing.related_terms = list(set((existing.related_terms or []) + (term.related_terms or [])))
             else:
                 seen[key] = term
-        
+
         return list(seen.values())
+
+    # A term is non-linguistic noise if it's a template variable ({partner},
+    # {free_period_length}) or a code/JSON key (snake_case identifier like
+    # car_model, payment_method, free_period_type). These are placeholders, not
+    # terminology, and the model sometimes even invents snake_case "translations"
+    # for them. Real multi-word terms use spaces or hyphens, so they're safe.
+    _SNAKE_KEY_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)+$')
+
+    @classmethod
+    def _is_noise_term(cls, term_str: str) -> bool:
+        s = (term_str or '').strip()
+        if not s:
+            return True
+        if '{' in s or '}' in s:
+            return True
+        if ' ' not in s and cls._SNAKE_KEY_RE.match(s):
+            return True
+        return False
+
+    def _drop_noise_terms(self, result: ExtractionResult) -> ExtractionResult:
+        """Remove template-variable / code-key entries before lookup/export."""
+        kept = [t for t in result.terms if not self._is_noise_term(t.term)]
+        dropped = len(result.terms) - len(kept)
+        if dropped:
+            print(f"Dropped {dropped} placeholder/key term(s)")
+        result.terms = kept
+        return result
+
+    # Translation-source priority for consolidation: a translation taken from the
+    # existing bilingual file always wins over an AI guess.
+    _SOURCE_RANK = {'EXACT_MATCH': 3, 'FUZZY_REFERENCE': 2, 'API': 1}
+
+    def _consolidate_by_source_term(self, result: ExtractionResult) -> ExtractionResult:
+        """Collapse entries sharing a source term to ONE, so the glossary never
+        lists the same term with two translations. The surviving translation is
+        chosen by source (file match > fuzzy > AI), then relevance, then
+        frequency."""
+        groups: Dict[str, List[Term]] = {}
+        order: List[str] = []
+        for t in result.terms:
+            key = t.term.strip().lower()
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(t)
+
+        consolidated: List[Term] = []
+        for key in order:
+            members = groups[key]
+            best = max(members, key=lambda t: (
+                self._SOURCE_RANK.get(t.translation_source, 0),
+                t.relevance_score,
+                t.frequency,
+            ))
+            # Fold the rest into the survivor (keep its chosen translation).
+            best.frequency = sum(t.frequency for t in members)
+            best.relevance_score = max(t.relevance_score for t in members)
+            best.confidence_score = max(t.confidence_score for t in members)
+            variants = set(best.variants or [])
+            for t in members:
+                variants.update(t.variants or [])
+            best.variants = sorted(variants)
+            consolidated.append(best)
+
+        collapsed = len(result.terms) - len(consolidated)
+        if collapsed:
+            print(f"Consolidated {collapsed} duplicate-source term(s) to one translation each")
+        result.terms = consolidated
+        return result
     
     def export_result(
         self,
