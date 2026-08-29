@@ -9,7 +9,6 @@ AVAILABLE_MODELS = {
     "claude-haiku-4-5": "Claude Haiku 4.5 — fast & economical (recommended)",
     "claude-sonnet-5": "Claude Sonnet 5 — balanced quality",
     "claude-opus-4-8": "Claude Opus 4.8 — most capable",
-    "claude-3-5-haiku-20241022": "Claude 3.5 Haiku — legacy, cheapest",
 }
 
 # Claude Models by purpose (ordered by cost-efficiency for our use case)

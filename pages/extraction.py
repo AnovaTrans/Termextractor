@@ -8,7 +8,17 @@ from pathlib import Path
 import os
 
 from src.extraction import TermExtractor
-from src.utils.constants import SUPPORTED_LANGUAGES, AVAILABLE_MODELS, DEFAULT_MODEL
+from src.utils.constants import SUPPORTED_LANGUAGES
+from src.utils.model_utils import (
+    list_model_ids, default_model, display_name, FALLBACK_MODELS,
+)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_model_ids(api_key: str):
+    """Live current-generation model ids, cached per key so we don't hit the
+    Models API on every rerun."""
+    return list_model_ids(api_key)
 
 
 def show_extraction_page():
@@ -47,17 +57,25 @@ def show_extraction_page():
         if target_lang == "None":
             target_lang = None
 
-    # AI model selection
-    model_ids = list(AVAILABLE_MODELS.keys())
-    default_index = model_ids.index(DEFAULT_MODEL) if DEFAULT_MODEL in model_ids else 0
+    # AI model selection — fetched live from the account so retired ids never
+    # linger; legacy generations are filtered out in model_utils. Falls back to
+    # the current-only static list when the API can't be reached.
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    live_ids = _cached_model_ids(api_key)
+    model_ids = live_ids or FALLBACK_MODELS
+    default_id = default_model(model_ids)
+    default_index = model_ids.index(default_id) if default_id in model_ids else 0
     selected_model = st.selectbox(
         "🤖 AI Model",
         options=model_ids,
-        format_func=lambda mid: AVAILABLE_MODELS[mid],
+        format_func=display_name,
         index=default_index,
         help="Which Claude model to use for extraction. Faster models cost less; "
-             "more capable models may find subtler terms.",
+             "more capable models may find subtler terms. List is fetched live "
+             "from your account (current-generation models only).",
     )
+    if api_key and not live_ids:
+        st.caption("⚠️ Couldn't fetch the live model list — showing current-generation defaults.")
 
     st.markdown("---")
 

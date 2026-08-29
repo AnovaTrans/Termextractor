@@ -59,12 +59,16 @@ class AnthropicClient:
         }
         
         # Pricing, USD per token (approximate; used only for the cost estimate).
+        # Current-generation only — the UI never offers legacy models. Any live
+        # model not listed here falls back to the Sonnet-tier estimate below.
         self.pricing = {
-            'claude-haiku-4-5':            {'input': 1.00 / 1_000_000, 'output': 5.00 / 1_000_000},
-            'claude-sonnet-5':             {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
-            'claude-opus-4-8':             {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
-            'claude-3-5-haiku-20241022':   {'input': 0.80 / 1_000_000, 'output': 4.00 / 1_000_000},
-            'claude-3-5-sonnet-20241022':  {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-haiku-4-5':  {'input': 1.00 / 1_000_000, 'output': 5.00 / 1_000_000},
+            'claude-sonnet-5':   {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-sonnet-4-6': {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-opus-4-8':   {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-opus-4-7':   {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-opus-4-6':   {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-fable-5':    {'input': 10.00 / 1_000_000, 'output': 50.00 / 1_000_000},
         }
         # Fallback when an unknown model id is priced.
         self._fallback_price = {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000}
