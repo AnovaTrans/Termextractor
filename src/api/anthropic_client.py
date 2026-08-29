@@ -10,6 +10,21 @@ import anthropic
 from src.config import get_config
 
 
+def _response_text(response) -> str:
+    """Concatenate the text of every text block in a Messages response.
+
+    Robust to responses whose first block is not text — e.g. when extended
+    thinking is enabled the first block is a ThinkingBlock with no `.text`,
+    so the old `response.content[0].text` would raise. This skips non-text
+    blocks (thinking, tool_use) and joins the rest.
+    """
+    parts = []
+    for block in (getattr(response, "content", None) or []):
+        if getattr(block, "type", None) == "text":
+            parts.append(getattr(block, "text", ""))
+    return "".join(parts)
+
+
 class AnthropicClient:
     """Anthropic API client with cost optimization"""
     
@@ -44,12 +59,16 @@ class AnthropicClient:
         }
         
         # Pricing, USD per token (approximate; used only for the cost estimate).
+        # Current-generation only — the UI never offers legacy models. Any live
+        # model not listed here falls back to the Sonnet-tier estimate below.
         self.pricing = {
-            'claude-haiku-4-5':            {'input': 1.00 / 1_000_000, 'output': 5.00 / 1_000_000},
-            'claude-sonnet-5':             {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
-            'claude-opus-4-8':             {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
-            'claude-3-5-haiku-20241022':   {'input': 0.80 / 1_000_000, 'output': 4.00 / 1_000_000},
-            'claude-3-5-sonnet-20241022':  {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-haiku-4-5':  {'input': 1.00 / 1_000_000, 'output': 5.00 / 1_000_000},
+            'claude-sonnet-5':   {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-sonnet-4-6': {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000},
+            'claude-opus-4-8':   {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-opus-4-7':   {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-opus-4-6':   {'input': 5.00 / 1_000_000, 'output': 25.00 / 1_000_000},
+            'claude-fable-5':    {'input': 10.00 / 1_000_000, 'output': 50.00 / 1_000_000},
         }
         # Fallback when an unknown model id is priced.
         self._fallback_price = {'input': 3.00 / 1_000_000, 'output': 15.00 / 1_000_000}
@@ -139,7 +158,7 @@ class AnthropicClient:
             self.usage_stats['estimated_cost'] += cost
 
         return {
-            'content': response.content[0].text if response.content else "",
+            'content': _response_text(response),
             'model': model,
             'usage': {
                 'input_tokens': response.usage.input_tokens,
@@ -183,7 +202,7 @@ Return ONLY valid JSON:
         self.usage_stats['total_output_tokens'] += response.usage.output_tokens
         
         return {
-            'content': response.content[0].text if response.content else "",
+            'content': _response_text(response),
             'model': model,
         }
     
@@ -249,7 +268,7 @@ Return ONLY valid JSON:
         self.usage_stats['estimated_cost'] += cost
         
         return {
-            'content': response.content[0].text if response.content else "",
+            'content': _response_text(response),
             'model': model,
             'cost': cost,
         }
