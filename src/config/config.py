@@ -47,7 +47,7 @@ class ConfigManager:
             },
             'extraction': {
                 'default_relevance_threshold': 70.0,
-                'chunk_size': 2000,
+                'chunk_size': 12000,
             },
             'api': {
                 'timeout_seconds': 60,
