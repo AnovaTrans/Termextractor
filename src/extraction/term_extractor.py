@@ -340,43 +340,59 @@ class TermExtractor:
             return result
         
         enriched_terms = []
-        
+        src_lang = self.config.source_language
+        tgt_lang = self.config.target_language
+
         for term in result.terms:
             self.lookup_stats.total_terms_processed += 1
-            
-            # Try lookup
-            lookup_result = self.translation_lookup.lookup(
-                term.term,
-                use_fuzzy=True
-            )
-            
-            if lookup_result:
-                translation, source_type = lookup_result
-                
-                if source_type == 'EXACT_MATCH':
-                    term.translation = translation
+
+            # 1) Exact whole-segment match — the term IS a segment in the file.
+            exact = self.translation_lookup.get_exact_match(term.term)
+            if exact:
+                term.translation = exact
+                term.from_existing_translation = True
+                term.translation_source = 'EXACT_MATCH'
+                self.lookup_stats.exact_matches_found += 1
+                enriched_terms.append(term)
+                continue
+
+            # 2) File-grounded in-segment extraction — the term occurs *inside*
+            #    one or more source segments; pull its translation from those
+            #    targets (base form) instead of letting the AI free-translate.
+            pairs = self.translation_lookup.find_containing_segments(term.term, k=5)
+            if pairs:
+                extracted = self.api_manager.extract_term_translation_from_segments(
+                    term.term, src_lang, tgt_lang, pairs
+                )
+                if extracted:
+                    term.translation = extracted
                     term.from_existing_translation = True
-                    term.translation_source = 'EXACT_MATCH'
-                    self.lookup_stats.exact_matches_found += 1
-                
-                elif source_type == 'FUZZY_REFERENCE':
-                    fuzzy_match = self.translation_lookup.get_fuzzy_match(term.term)
-                    if fuzzy_match:
-                        ref_translation, similarity = fuzzy_match
-                        term.fuzzy_reference_term = ref_translation
-                        term.fuzzy_match_score = similarity
-                        term.translation_source = 'FUZZY_REFERENCE'
-                        self.lookup_stats.fuzzy_matches_found += 1
-                        self.lookup_stats.fuzzy_matches_used += 1
+                    term.translation_source = 'FILE_INSEGMENT'
+                    self.lookup_stats.insegment_matches_found += 1
+                    enriched_terms.append(term)
+                    continue
+
+            # 3) Fuzzy reference (kept for reference/telemetry) else API-generated.
+            fuzzy_match = self.translation_lookup.get_fuzzy_match(term.term)
+            if fuzzy_match:
+                ref_translation, similarity = fuzzy_match
+                term.fuzzy_reference_term = ref_translation
+                term.fuzzy_match_score = similarity
+                term.translation_source = 'FUZZY_REFERENCE'
+                self.lookup_stats.fuzzy_matches_found += 1
+                self.lookup_stats.fuzzy_matches_used += 1
             else:
                 self.lookup_stats.api_generated += 1
-            
+
             enriched_terms.append(term)
         
-        # Calculate statistics
+        # Calculate statistics — a term counts as "from the file" when it was an
+        # exact segment, an in-segment extraction, or a used fuzzy reference.
         if self.lookup_stats.total_terms_processed > 0:
             self.lookup_stats.lookup_rate = (
-                (self.lookup_stats.exact_matches_found + self.lookup_stats.fuzzy_matches_used) /
+                (self.lookup_stats.exact_matches_found +
+                 self.lookup_stats.insegment_matches_found +
+                 self.lookup_stats.fuzzy_matches_used) /
                 self.lookup_stats.total_terms_processed
             ) * 100
         

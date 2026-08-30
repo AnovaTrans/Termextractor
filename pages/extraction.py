@@ -98,10 +98,12 @@ def show_extraction_page():
             
             if enable_bilingual:
                 bilingual_file = st.file_uploader(
-                    "Upload existing translations (XLIFF/SDLXLIFF)",
-                    type=["xliff", "sdlxliff", "mqxliff", "xml"],
+                    "Upload existing translations (XLIFF/SDLXLIFF/TMX)",
+                    type=["xliff", "sdlxliff", "mqxliff", "xml", "tmx"],
                     key="bilingual_upload",
-                    help="File containing source-target translation pairs"
+                    help="Bilingual file or translation memory (TMX) with "
+                         "source-target pairs. When a term appears in it, the "
+                         "translation is taken from the file, not the AI."
                 )
                 
                 fuzzy_threshold = st.slider(

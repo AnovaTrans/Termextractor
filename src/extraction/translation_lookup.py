@@ -3,6 +3,7 @@ Translation Lookup for TermExtractor-Pro
 Handles exact matching and fuzzy matching with similarity scoring
 """
 
+import re
 from typing import Dict, List, Tuple, Optional
 from difflib import SequenceMatcher
 from src.utils import calculate_similarity
@@ -94,6 +95,28 @@ class TranslationLookup:
         
         return None
     
+    def find_containing_segments(self, term: str, k: int = 5) -> List[Tuple[str, str]]:
+        """Return up to k (source, target) segment pairs whose SOURCE contains
+        `term` as a whole word (case-insensitive). Used to pull a term's
+        translation from inside the bilingual file when it isn't a standalone
+        segment. `\\w` is Unicode-aware, so Turkish/accented letters bound
+        correctly.
+        """
+        term = (term or "").strip()
+        if not term:
+            return []
+        pattern = re.compile(r'(?<!\w)' + re.escape(term) + r'(?!\w)',
+                             re.IGNORECASE | re.UNICODE)
+        matches: List[Tuple[str, str]] = []
+        for source, target in self.exact_index.items():
+            if not target:
+                continue
+            if pattern.search(source):
+                matches.append((source, target))
+                if len(matches) >= k:
+                    break
+        return matches
+
     def lookup(self, term: str, use_fuzzy: bool = True) -> Optional[Tuple[str, str]]:
         """
         Look up term translation (exact first, then fuzzy).

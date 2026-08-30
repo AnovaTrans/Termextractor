@@ -208,6 +208,22 @@ class APIManager:
         
         return result
     
+    def extract_term_translation_from_segments(
+        self,
+        term,
+        source_lang,
+        target_lang,
+        pairs,
+        model=None,
+    ):
+        """Grounded extraction of a term's translation from bilingual segments.
+        Delegates to the client; returns the base form or None."""
+        self._check_rate_limit()
+        self.stats['total_requests'] += 1
+        return self.client.extract_term_translation_from_segments(
+            term, source_lang, target_lang, pairs, model=model
+        )
+
     def get_stats(self) -> Dict[str, Any]:
         """Get API manager statistics"""
         client_stats = self.client.get_usage_stats()

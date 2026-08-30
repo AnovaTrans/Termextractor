@@ -11,6 +11,7 @@ class TranslationSourceType(Enum):
     """Enum for translation source types"""
     API = "API"
     EXACT_MATCH = "EXACT_MATCH"
+    FILE_INSEGMENT = "FILE_INSEGMENT"  # term found inside a bilingual segment
     FUZZY_REFERENCE = "FUZZY_REFERENCE"
 
 
@@ -192,6 +193,7 @@ class BilinguialLookupStatistics:
     
     total_terms_processed: int = 0
     exact_matches_found: int = 0
+    insegment_matches_found: int = 0  # term translation pulled from inside a segment
     fuzzy_matches_found: int = 0
     fuzzy_matches_used: int = 0  # >= threshold
     fuzzy_matches_ignored: int = 0  # < threshold

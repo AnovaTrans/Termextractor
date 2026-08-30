@@ -4,8 +4,10 @@ Cost-optimized model selection strategy
 """
 
 import os
+import re
+import json
 import threading
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import anthropic
 from src.config import get_config
 
@@ -273,6 +275,63 @@ Return ONLY valid JSON:
             'cost': cost,
         }
     
+    def extract_term_translation_from_segments(
+        self,
+        term: str,
+        source_lang: str,
+        target_lang: Optional[str],
+        pairs: List[Tuple[str, str]],
+        model: Optional[str] = None,
+    ) -> Optional[str]:
+        """Pull a term's translation from the TARGET side of bilingual segments
+        that contain it — grounded in the file, never invented.
+
+        Returns the base/dictionary form of the term's translation, or None if
+        it can't be found in the provided targets.
+        """
+        if not pairs:
+            return None
+        model = model or self._get_model_for_purpose('domain_classification')
+        examples = "\n\n".join(f"SOURCE: {s}\nTARGET: {t}" for s, t in pairs)
+        tl = target_lang or "the target language"
+        prompt = (
+            f"You are given source->target segment pairs from a translation "
+            f"memory ({source_lang} -> {tl}). These are HUMAN translations; treat "
+            f"the TARGET text as ground truth.\n\n"
+            f"{examples}\n\n"
+            f'The source term is: "{term}"\n\n'
+            f"Return the translation of that term EXACTLY as it appears in the "
+            f"TARGET segments, normalized to its base/dictionary form (strip "
+            f"inflection, e.g. 'şoförün' -> 'şoför'). Do NOT invent or improve a "
+            f"translation — use only what is present in the targets. If the "
+            f"term's translation is not clearly present, use null.\n\n"
+            f'Return ONLY JSON: {{"translation": "<base form>"}} '
+            f'or {{"translation": null}}'
+        )
+        try:
+            response = self.client.messages.create(
+                model=model,
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            with self._stats_lock:
+                self.usage_stats['total_requests'] += 1
+                self.usage_stats['total_input_tokens'] += response.usage.input_tokens
+                self.usage_stats['total_output_tokens'] += response.usage.output_tokens
+                self.usage_stats['estimated_cost'] += self._calculate_cost(
+                    model, response.usage.input_tokens, response.usage.output_tokens
+                )
+            content = _response_text(response).strip()
+            match = re.search(r'\{.*\}', content, re.DOTALL)
+            if not match:
+                return None
+            val = json.loads(match.group(0)).get("translation")
+            if isinstance(val, str) and val.strip() and val.strip().lower() not in ("null", "none"):
+                return val.strip()
+            return None
+        except Exception:
+            return None
+
     def get_usage_stats(self) -> Dict[str, Any]:
         """Get usage statistics"""
         return self.usage_stats.copy()
