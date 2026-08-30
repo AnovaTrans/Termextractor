@@ -37,17 +37,34 @@ class BilingualFileHandler:
         ext = Path(file_path).suffix.lower()
         return ext in ['.xliff', '.sdlxliff', '.mqxliff', '.xml', '.tmx']
     
+    @staticmethod
+    def _to_text(file_content: bytes) -> str:
+        """Decode bytes to text, handling UTF-16 (MemoQ exports TMX as UTF-16).
+
+        Plain utf-8 decoding of UTF-16 bytes leaves NUL characters between every
+        letter, so a substring search like '<tmx' silently fails and the file is
+        misrouted. Detect UTF-16 by BOM, else by a high NUL density in the head.
+        """
+        if file_content[:2] in (b'\xff\xfe', b'\xfe\xff'):
+            return file_content.decode('utf-16', errors='ignore')
+        if file_content[:2000].count(0) > 100:  # BOM-less UTF-16
+            try:
+                return file_content.decode('utf-16')
+            except Exception:
+                return file_content.decode('utf-16-le', errors='ignore')
+        return file_content.decode('utf-8-sig', errors='ignore')
+
     def detect_format(self, file_content: bytes) -> str:
         """
         Detect bilingual file format.
-        
+
         Args:
             file_content: File content as bytes
-            
+
         Returns:
             Format type: 'xliff', 'sdlxliff', 'mqxliff', or 'unknown'
         """
-        content_str = file_content.decode('utf-8', errors='ignore')
+        content_str = self._to_text(file_content)
 
         if '<tmx' in content_str:
             return 'tmx'
