@@ -27,7 +27,7 @@ def show_settings_page():
             extraction_config = get_config().get_extraction_config()
             
             st.write(f"- **Default Relevance Threshold**: {extraction_config.get('default_relevance_threshold', 70)}%")
-            st.write(f"- **Chunk Size**: {extraction_config.get('chunk_size', 2000)} characters")
+            st.write(f"- **Chunk Size**: {extraction_config.get('chunk_size', 12000)} characters")
             st.write(f"- **Min Term Length**: {extraction_config.get('min_term_length', 2)}")
             st.write(f"- **Max Term Length**: {extraction_config.get('max_term_length', 255)}")
         
@@ -38,7 +38,7 @@ def show_settings_page():
             
             st.write(f"- **Timeout**: {api_config.get('timeout_seconds', 60)}s")
             st.write(f"- **Rate Limit**: {api_config.get('rate_limit_per_minute', 50)} req/min")
-            st.write(f"- **Max Tokens**: {api_config.get('max_tokens_per_request', 4096)}")
+            st.write(f"- **Max Tokens**: {api_config.get('max_tokens_per_request', 16000)}")
             st.write(f"- **Retry Attempts**: {api_config.get('retry_attempts', 3)}")
         
         st.markdown("---")

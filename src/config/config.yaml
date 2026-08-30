@@ -11,7 +11,7 @@ extraction:
   default_confidence_threshold: 60.0
   min_term_length: 2
   max_term_length: 255
-  chunk_size: 2000
+  chunk_size: 12000
   chunk_overlap: 100
 
 model_selection:
@@ -26,7 +26,7 @@ model_selection:
 api:
   timeout_seconds: 60
   rate_limit_per_minute: 50
-  max_tokens_per_request: 8192   # raised from 4096 to prevent JSON truncation
+  max_tokens_per_request: 16000   # non-streaming default (skill guidance); current models allow far more, streaming needed above ~16k
   retry_attempts: 3
   retry_delay_seconds: 2
 

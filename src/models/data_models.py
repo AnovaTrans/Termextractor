@@ -235,7 +235,7 @@ class ExtractionConfig:
     max_variants_per_term: int = 20
     
     # Processing settings
-    chunk_size: int = 2000
+    chunk_size: int = 12000
     enable_caching: bool = False
 
 

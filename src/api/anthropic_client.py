@@ -103,7 +103,7 @@ class AnthropicClient:
 
     def _max_tokens(self) -> int:
         """Output-token ceiling per request, from config (default 8192)."""
-        return int(self.config.get('api.max_tokens_per_request', 8192))
+        return int(self.config.get('api.max_tokens_per_request', 16000))
     
     def extract_terms(
         self,
